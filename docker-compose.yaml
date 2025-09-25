@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16
+    container_name: go_backend_db
+    environment:
+      POSTGRES_USER: go_user
+      POSTGRES_PASSWORD: go_pass
+      POSTGRES_DB: go_backend
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
