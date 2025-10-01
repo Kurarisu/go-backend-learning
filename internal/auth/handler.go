@@ -8,6 +8,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+
+	"go-backend/internal/response"
 )
 
 type LoginRequest struct {
@@ -23,7 +25,7 @@ func LoginHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req LoginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+			response.Error(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
@@ -33,13 +35,13 @@ func LoginHandler(db *sql.DB) http.HandlerFunc {
 		err := db.QueryRow("SELECT id, password FROM users WHERE email = $1", req.Email).
 			Scan(&id, &hashedPassword)
 		if err != nil {
-			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+			response.Error(w, http.StatusUnauthorized, "Invalid email or password")
 			return
 		}
 
 		// Cek password
 		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
-			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+			response.Error(w, http.StatusUnauthorized, "Invalid email or password")
 			return
 		}
 
@@ -51,11 +53,11 @@ func LoginHandler(db *sql.DB) http.HandlerFunc {
 
 		tokenString, err := token.SignedString(GetJWTSecret())
 		if err != nil {
-			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			response.Error(w, http.StatusInternalServerError, "Failed to generate token")
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(LoginResponse{Token: tokenString})
+		// Sukses
+		response.Success(w, LoginResponse{Token: tokenString})
 	}
 }
