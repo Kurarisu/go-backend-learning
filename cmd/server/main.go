@@ -6,15 +6,46 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/middleware"
+	"go-backend/internal/transaction"
 	"go-backend/internal/user"
 )
 
+// CORS
+func enableCORSFlexible(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	// Koneksi ke PostgreSQL
+	// Load .env
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Gagal load .env:", err)
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET tidak ditemukan di .env")
+	}
+	auth.SetJWTSecret(jwtSecret)
+
+	// DB connection
 	connStr := "postgres://go_user:go_pass@localhost:5432/go_backend?sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -22,14 +53,16 @@ func main() {
 	}
 	defer db.Close()
 
-	// Cek koneksi
 	if err := db.Ping(); err != nil {
 		log.Fatal("DB tidak bisa di-ping:", err)
 	}
 	fmt.Println("✅ Berhasil konek ke database!")
 
-	// Routes
-	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+	// pakai mux biar gampang wrap middleware
+	mux := http.NewServeMux()
+
+	// Users
+	mux.Handle("/users", enableCORSFlexible(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			user.GetUsersHandler(db)(w, r)
 			return
@@ -39,9 +72,10 @@ func main() {
 			return
 		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	})
+	})))
 
-	http.HandleFunc("/me", auth.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	// Profile (/me)
+	mux.Handle("/me", enableCORSFlexible(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID := r.Context().Value(auth.UserIDKey).(int)
 
 		var name, email string
@@ -57,13 +91,40 @@ func main() {
 			"name":  name,
 			"email": email,
 		})
-	}))
+	}))))
 
-	http.HandleFunc("/login", auth.LoginHandler(db))
+	// Auth
+	mux.Handle("/login", enableCORSFlexible(auth.LoginHandler(db)))
+	mux.Handle("/logout", enableCORSFlexible(auth.LogoutHandler()))
 
-	http.HandleFunc("/logout", auth.LogoutHandler())
+	// Transactions
+	mux.Handle("/deposit", enableCORSFlexible(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			transaction.DepositHandler(db)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))))
 
-	// Start server
+	mux.Handle("/withdraw", enableCORSFlexible(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			transaction.WithdrawHandler(db)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))))
+
+	mux.Handle("/transactions", enableCORSFlexible(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			transaction.ListTransactionsHandler(db)(w, r)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))))
+
+	// Bungkus semua dengan LoggingMiddleware
+	handler := middleware.LoggingMiddleware(mux)
+
 	fmt.Println("🚀 Server jalan di :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }
