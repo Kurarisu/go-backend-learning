@@ -12,42 +12,45 @@ import (
 	"go-backend/internal/response"
 )
 
-type LoginRequest struct {
+type RegisterRequest struct {
+	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type LoginResponse struct {
+type RegisterResponse struct {
 	Token string `json:"token"`
 }
 
-func LoginHandler(db *sql.DB) http.HandlerFunc {
+func RegisterHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req LoginRequest
+		var req RegisterRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			response.Error(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
 
-		// Ambil user dari DB
-		var id int
-		var hashedPassword string
-		err := db.QueryRow("SELECT id, password FROM users WHERE email = $1", req.Email).
-			Scan(&id, &hashedPassword)
+		// Hash password
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
-			response.Error(w, http.StatusUnauthorized, "Invalid email or password")
+			response.Error(w, http.StatusInternalServerError, "Failed to hash password")
 			return
 		}
 
-		// Cek password
-		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
-			response.Error(w, http.StatusUnauthorized, "Invalid email or password")
+		// Insert user
+		var userID int
+		err = db.QueryRow(
+			"INSERT INTO users (name, email, password, balance) VALUES ($1, $2, $3, 0) RETURNING id",
+			req.Name, req.Email, string(hashedPassword),
+		).Scan(&userID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "Failed to create user")
 			return
 		}
 
 		// Generate JWT
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"user_id": id,
+			"user_id": userID,
 			"exp":     time.Now().Add(time.Hour).Unix(),
 		})
 
@@ -57,7 +60,6 @@ func LoginHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Sukses
-		response.Success(w, LoginResponse{Token: tokenString})
+		response.Success(w, RegisterResponse{Token: tokenString})
 	}
 }
