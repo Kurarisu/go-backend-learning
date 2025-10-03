@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: go_user
+          POSTGRES_PASSWORD: go_pass
+          POSTGRES_DB: go_backend
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U go_user -d go_backend"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23" # sesuaikan dengan versi Go kamu
+
+      - name: Install migrate
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.16.2/migrate.linux-amd64.tar.gz | tar xvz
+          sudo mv migrate /usr/local/bin/
+
+      - name: Run migrations
+        run: migrate -path ./db/migrations -database "postgres://go_user:go_pass@localhost:5432/go_backend?sslmode=disable" up
+
+      - name: Build app
+        run: go build -v ./cmd/server
+
+      - name: Run tests
+        run: go test ./... -v
