@@ -36,8 +36,12 @@ func main() {
 	// Load .env
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Gagal load .env:", err)
+		log.Println("No .env file found or failed to load, using system env vars")
 	}
+
+	// Contoh ambil variabel
+	dbUser := os.Getenv("DB_USER")
+	log.Println("DB_USER =", dbUser)
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
@@ -96,6 +100,7 @@ func main() {
 	// Auth
 	mux.Handle("/login", enableCORSFlexible(auth.LoginHandler(db)))
 	mux.Handle("/logout", enableCORSFlexible(auth.LogoutHandler()))
+	mux.Handle("/register", enableCORSFlexible(auth.RegisterHandler(db)))
 
 	// Transactions
 	mux.Handle("/deposit", enableCORSFlexible(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
