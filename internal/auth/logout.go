@@ -2,16 +2,16 @@
 package auth
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"go-backend/internal/response"
 )
 
 func LogoutHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Stateless JWT → logout cukup di client.
-		// Di sini kita cuma balas sukses.
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		// Server hanya mengembalikan response sukses.
+		response.Success(w, map[string]string{
 			"message": "Logout berhasil, silakan hapus token di client.",
 		})
 	}
